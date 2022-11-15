@@ -17,9 +17,11 @@ class Server:
         """Initializes a server, but doesn't make it listen until start() is called."""
         self._selector = selectors.DefaultSelector() # Internal selector for multiplexing.
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Internal socket for socket-ing with.
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Allow us to use the same host and port multiple times, even on a crash.
 
         self.host = host
         self.port = port
+        self._socks = []
         self._host_port_validate()
 
         self._sock.bind((self.host, self.port)) # Bind our socket server to our host and port.
@@ -48,7 +50,7 @@ class Server:
     def _accept_new_connection(self, client_sock):
         """Internally connects a client to the server."""
         new_conn, new_addr = client_sock.accept() # Accept their connection.
-        new_conn.setblocking(False) # YOU SHALL NOT BLOCK (because we don't want our server to hang)
+        new_conn.setblocking(False) # No blocking.
 
         data = types.SimpleNamespace(addr=new_addr, recv=None) # Create a SimpleNamespace to hold this client's data in.
         events = selectors.EVENT_READ | selectors.EVENT_WRITE
@@ -63,6 +65,9 @@ class Server:
         client_data = key.data
         client_data.recv = None # Reset what they have received.
 
+        if client_sock not in self._socks:
+            self._socks.append(client_sock) # Add our sock to the internal socks list.
+
         if mask & selectors.EVENT_READ: # Read from the client socket.
             try: # This is an a try-except because there's a small chance that a client will disconnect when this is running, causing bad things.
                 recv_data = client_sock.recv(1024) # Receive 1024 bytes of data from the client. XXX: ADD CLIENT SUPERSENDING SO THE SERVER IS BETTER
@@ -73,6 +78,10 @@ class Server:
             if not recv_data: # We didn't get anything.
                 self._selector.unregister(client_sock) # Remove client from our selector.
                 client_sock.close() # Wipe them off of the face of the Earth.
+
+                if client_sock in self._socks:
+                    self._socks.remove(client_sock) # Remove our sock from the internal socks list.
+
                 self._handle_server_event(event_name="on_disconnect_connection", data=client_data, sock=client_sock) # Handle custom server event.
 
             else:
@@ -82,10 +91,18 @@ class Server:
             self._handle_server_event(event_name="on_service_connection", data=client_data, sock=client_sock) # Handle custom server event.
 
 
+    def send_to_sock(self, sock, data_string):
+        sock.sendall(data_string)
+
+
+    def send_to_all_socks(self, data_string):
+        for sock in self._socks:
+            sock.sendall(data_string)
+
     def start(self):
         """Starts a server on the specified host and port."""
         self._sock.listen() # Listen for a connection!
-        self._sock.setblocking(False) # YOU SHALL NOT BLOCK (because we don't want our server to hang)
+        self._sock.setblocking(False) # No blocking.
 
         self._selector.register(self._sock, selectors.EVENT_READ, data=None) # Registers the socket to be monitored by self._selector.select().
         self._handle_server_event(event_name="on_start", data=None, sock=None) # Handle custom server event.
@@ -103,8 +120,8 @@ class Server:
                     else: # Connected client who wants their connection serviced.
                         self._service_connection(key, mask)
 
-        except (KeyboardInterrupt, EOFError): # Catch those CTRL+Cs and CTRL+Ds nicely.
-            return SystemExit
+        except (KeyboardInterrupt, EOFError):
+            pass
 
         finally:
             self._selector.close()

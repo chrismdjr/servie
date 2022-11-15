@@ -23,13 +23,7 @@ def custom_service_connection(event_name, server_obj, data, sock):
     if not data.recv:
         return
 
-    if data.recv.decode() == "foobar":
-        print(f"Client [{data.addr[0]}] said \"foobar\".")
-        sock.sendall(b"You said \"foobar\".")
-
-    else:
-        print(f"Client [{data.addr[0]}] did not say \"foobar\".")
-        sock.sendall(b"You didn't say \"foobar\".")
+    server_obj.send_to_all_socks(b"Hey, a client said something!")
 
 
 def main():
