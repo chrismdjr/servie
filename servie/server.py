@@ -70,7 +70,7 @@ class Server:
 
         if mask & selectors.EVENT_READ: # Read from the client socket.
             try: # This is an a try-except because there's a small chance that a client will disconnect when this is running, causing bad things.
-                recv_data = client_sock.recv(1024) # Receive 1024 bytes of data from the client. XXX: ADD CLIENT SUPERSENDING SO THE SERVER IS BETTER
+                recv_data = client_sock.recv(1024) # Receive 1024 bytes of data from the client.
 
             except (ConnectionResetError):
                 recv_data = None # When there's an error, we didn't get anything.
@@ -97,7 +97,12 @@ class Server:
 
     def send_to_all_socks(self, data_string):
         for sock in self._socks:
-            sock.sendall(data_string)
+            try:
+                sock.sendall(data_string)
+
+            except:
+                self._socks.remove(sock) # Remove the socket if it's bad (causing an error of any kind).
+                # I may want to look into this to see if the server consistently tries to service the connection at least once after a sock dies like it does with disconnection.
 
     def start(self):
         """Starts a server on the specified host and port."""
